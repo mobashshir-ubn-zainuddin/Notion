@@ -21,20 +21,32 @@ jobs:
       - name: Install Pillow
         run: pip install Pillow
 
-      - name: Download AutoHotkey v2
+      - name: Download AutoHotkey v2 (from GitHub Releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          Write-Host "Downloading AutoHotkey v2 zip..."
-          Invoke-WebRequest -Uri "https://www.autohotkey.com/download/ahk-v2.zip" -OutFile "ahk-v2.zip" -UseBasicParsing
-          Expand-Archive "ahk-v2.zip" -DestinationPath "ahk-v2"
-          Write-Host "Contents:"
-          Get-ChildItem "ahk-v2" | Select-Object Name
+          # Download latest AHK v2 portable zip via gh CLI (avoids Cloudflare on autohotkey.com)
+          gh release download --repo AutoHotkey/AutoHotkey --pattern "*.zip" --dir ahk-download
+          $zip = Get-ChildItem ahk-download -Filter "*.zip" | Select-Object -First 1
+          Write-Host "Downloaded: $($zip.Name)"
+          Expand-Archive $zip.FullName -DestinationPath "ahk-v2"
+          Write-Host "Extracted:"
+          Get-ChildItem "ahk-v2" -Recurse | Select-Object FullName
 
       - name: Copy AutoHotkey64.exe as Notion.exe
         shell: pwsh
         run: |
-          Copy-Item "ahk-v2\AutoHotkey64.exe" "Notion.exe"
-          Write-Host "Copied: $(Get-Item Notion.exe | Select-Object -ExpandProperty Length) bytes"
+          $ahk = Get-ChildItem "ahk-v2" -Recurse -Filter "AutoHotkey64.exe" |
+                 Where-Object { $_.Name -notmatch "UIA" } |
+                 Select-Object -First 1
+          if (-not $ahk) {
+            Write-Error "AutoHotkey64.exe not found in extracted zip"
+            exit 1
+          }
+          Write-Host "Using: $($ahk.FullName)"
+          Copy-Item $ahk.FullName "Notion.exe"
+          Write-Host "Copied: $((Get-Item Notion.exe).Length) bytes"
 
       - name: Convert NotionIcon.png to ICO
         run: python scripts/png_to_ico.py

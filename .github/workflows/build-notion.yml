@@ -21,51 +21,30 @@ jobs:
       - name: Install Pillow
         run: pip install Pillow
 
-      # ── Step 1: Get the official AHK v2 installer ─────────────────────────
-      - name: Download AutoHotkey v2 setup.exe (GitHub Releases)
+      # ── Step 1: Download the portable AHK v2 zip (no installer needed) ──────
+      - name: Download AutoHotkey v2 portable zip (GitHub Releases)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           gh release download --repo AutoHotkey/AutoHotkey `
-            --pattern "*_setup.exe" --dir ahk-download
-          $f = Get-ChildItem ahk-download -Filter "*_setup.exe" |
-               Select-Object -First 1
+            --pattern "AutoHotkey_*.zip" --dir ahk-download
+          $f = Get-ChildItem ahk-download -Filter "*.zip" | Select-Object -First 1
           Write-Host "Downloaded: $($f.Name)"
-          echo "AHK_SETUP=$($f.FullName)" >> $env:GITHUB_ENV
+          Expand-Archive $f.FullName -DestinationPath "ahk-zip"
+          Write-Host "Zip contents:"
+          Get-ChildItem "ahk-zip" -Recurse | Select-Object FullName
 
-      # ── Step 2: Extract files directly from the setup.exe using 7-Zip ──────
-      #    (no silent install — that hangs on headless runners)
-      - name: Extract AHK files from setup.exe with 7-Zip
+      # ── Step 2: Copy AutoHotkey64.exe as Notion.exe ───────────────────────
+      - name: Copy AutoHotkey64.exe as Notion.exe
         shell: pwsh
         run: |
-          # 7-Zip can unpack NSIS installers directly without running them
-          $7z = "C:\Program Files\7-Zip\7z.exe"
-          Write-Host "Extracting $env:AHK_SETUP ..."
-          & $7z x $env:AHK_SETUP -o"ahk-extracted" -y | Out-Null
-          Write-Host "Extracted layout:"
-          Get-ChildItem "ahk-extracted" -Recurse | Select-Object FullName
-
-          # AutoHotkey64.exe — may be at root or under v2\
-          $ahk64 = Get-ChildItem "ahk-extracted" -Recurse -Filter "AutoHotkey64.exe" |
+          $ahk64 = Get-ChildItem "ahk-zip" -Recurse -Filter "AutoHotkey64.exe" |
                    Where-Object { $_.Name -notmatch "UIA" } |
                    Select-Object -First 1
           if (-not $ahk64) { Write-Error "AutoHotkey64.exe not found"; exit 1 }
           Copy-Item $ahk64.FullName "Notion.exe"
-          Write-Host "Notion.exe from: $($ahk64.FullName) ($((Get-Item Notion.exe).Length) bytes)"
-
-          # UX / Dash folder
-          $uxDir = Get-ChildItem "ahk-extracted" -Recurse -Directory |
-                   Where-Object { $_.Name -eq "UX" } |
-                   Select-Object -First 1
-          if ($uxDir) {
-            Copy-Item $uxDir.FullName "ahk-ux" -Recurse
-            Write-Host "UX files:"
-            Get-ChildItem "ahk-ux" | Select-Object Name
-          } else {
-            Write-Host "UX folder not found in extracted setup — creating empty placeholder"
-            New-Item -ItemType Directory "ahk-ux" | Out-Null
-          }
+          Write-Host "Notion.exe: $((Get-Item Notion.exe).Length) bytes"
 
       # ── Step 3: Build the Notion icon and patch Notion.exe ────────────────
       - name: Convert NotionIcon.png → NotionIcon.ico

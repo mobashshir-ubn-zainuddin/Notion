@@ -1,4 +1,7 @@
 #Requires AutoHotkey v2.0
-; Runs when the user opens Notion.exe directly — launches the AutoHotkey Dash.
-Run(A_ScriptDir "\UX\AutoHotkeyUX.exe")
-ExitApp()
+#SingleInstance Force
+Persistent
+
+; Show Notion icon in system tray when Notion.exe is opened directly
+TraySetIcon(A_ScriptDir "\NotionIcon.ico")
+A_IconTip := "Notion"

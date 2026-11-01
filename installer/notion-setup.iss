@@ -30,10 +30,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Rebranded runtime
 Source: "{#RepoRoot}Notion.exe";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}NotionIcon.ico";   DestDir: "{app}"; Flags: ignoreversion
-; Launcher: opens the Dash when user runs Notion.exe with no script
+; Default script: sits next to Notion.exe so double-clicking it stays in tray
 Source: "NotionLauncher.ahk";          DestDir: "{app}"; DestName: "Notion.ahk"; Flags: ignoreversion
-; AutoHotkey UX / Dash  (internal AHK branding inside the window is unchanged)
-Source: "{#RepoRoot}ahk-ux\*";         DestDir: "{app}\UX"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
 ; .ahk file association → Notion.exe

@@ -34,24 +34,38 @@ jobs:
           Write-Host "Downloaded: $($f.Name)"
           echo "AHK_SETUP=$($f.FullName)" >> $env:GITHUB_ENV
 
-      # ── Step 2: Install AHK silently to extract the UX/Dash files ─────────
-      - name: Install AHK silently and copy files
+      # ── Step 2: Extract files directly from the setup.exe using 7-Zip ──────
+      #    (no silent install — that hangs on headless runners)
+      - name: Extract AHK files from setup.exe with 7-Zip
         shell: pwsh
         run: |
-          Write-Host "Running AHK installer silently..."
-          Start-Process $env:AHK_SETUP -ArgumentList "/S" -Wait
-          Write-Host "Contents of install dir:"
-          Get-ChildItem "C:\Program Files\AutoHotkey" -Recurse |
-            Select-Object FullName
+          # 7-Zip can unpack NSIS installers directly without running them
+          $7z = "C:\Program Files\7-Zip\7z.exe"
+          Write-Host "Extracting $env:AHK_SETUP ..."
+          & $7z x $env:AHK_SETUP -o"ahk-extracted" -y | Out-Null
+          Write-Host "Extracted layout:"
+          Get-ChildItem "ahk-extracted" -Recurse | Select-Object FullName
 
-          # Grab AutoHotkey64.exe (will become Notion.exe)
-          Copy-Item "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" "Notion.exe"
-          Write-Host "Notion.exe size: $((Get-Item Notion.exe).Length) bytes"
+          # AutoHotkey64.exe — may be at root or under v2\
+          $ahk64 = Get-ChildItem "ahk-extracted" -Recurse -Filter "AutoHotkey64.exe" |
+                   Where-Object { $_.Name -notmatch "UIA" } |
+                   Select-Object -First 1
+          if (-not $ahk64) { Write-Error "AutoHotkey64.exe not found"; exit 1 }
+          Copy-Item $ahk64.FullName "Notion.exe"
+          Write-Host "Notion.exe from: $($ahk64.FullName) ($((Get-Item Notion.exe).Length) bytes)"
 
-          # Grab the UX / Dash folder (AutoHotkeyUX.exe + its AHK scripts)
-          Copy-Item "C:\Program Files\AutoHotkey\UX" "ahk-ux" -Recurse
-          Write-Host "UX files:"
-          Get-ChildItem "ahk-ux" | Select-Object Name
+          # UX / Dash folder
+          $uxDir = Get-ChildItem "ahk-extracted" -Recurse -Directory |
+                   Where-Object { $_.Name -eq "UX" } |
+                   Select-Object -First 1
+          if ($uxDir) {
+            Copy-Item $uxDir.FullName "ahk-ux" -Recurse
+            Write-Host "UX files:"
+            Get-ChildItem "ahk-ux" | Select-Object Name
+          } else {
+            Write-Host "UX folder not found in extracted setup — creating empty placeholder"
+            New-Item -ItemType Directory "ahk-ux" | Out-Null
+          }
 
       # ── Step 3: Build the Notion icon and patch Notion.exe ────────────────
       - name: Convert NotionIcon.png → NotionIcon.ico

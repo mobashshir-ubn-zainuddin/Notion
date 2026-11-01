@@ -1,4 +1,4 @@
-name: Build Notion (rebranded AutoHotkey)
+name: Build Notion Installer (rebranded AutoHotkey)
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -21,40 +21,46 @@ jobs:
       - name: Install Pillow
         run: pip install Pillow
 
-      - name: Download AutoHotkey v2 (from GitHub Releases)
+      # ── Step 1: Get the official AHK v2 installer ─────────────────────────
+      - name: Download AutoHotkey v2 setup.exe (GitHub Releases)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          # Download latest AHK v2 portable zip via gh CLI (avoids Cloudflare on autohotkey.com)
-          gh release download --repo AutoHotkey/AutoHotkey --pattern "*.zip" --dir ahk-download
-          $zip = Get-ChildItem ahk-download -Filter "*.zip" | Select-Object -First 1
-          Write-Host "Downloaded: $($zip.Name)"
-          Expand-Archive $zip.FullName -DestinationPath "ahk-v2"
-          Write-Host "Extracted:"
-          Get-ChildItem "ahk-v2" -Recurse | Select-Object FullName
+          gh release download --repo AutoHotkey/AutoHotkey `
+            --pattern "*_setup.exe" --dir ahk-download
+          $f = Get-ChildItem ahk-download -Filter "*_setup.exe" |
+               Select-Object -First 1
+          Write-Host "Downloaded: $($f.Name)"
+          echo "AHK_SETUP=$($f.FullName)" >> $env:GITHUB_ENV
 
-      - name: Copy AutoHotkey64.exe as Notion.exe
+      # ── Step 2: Install AHK silently to extract the UX/Dash files ─────────
+      - name: Install AHK silently and copy files
         shell: pwsh
         run: |
-          $ahk = Get-ChildItem "ahk-v2" -Recurse -Filter "AutoHotkey64.exe" |
-                 Where-Object { $_.Name -notmatch "UIA" } |
-                 Select-Object -First 1
-          if (-not $ahk) {
-            Write-Error "AutoHotkey64.exe not found in extracted zip"
-            exit 1
-          }
-          Write-Host "Using: $($ahk.FullName)"
-          Copy-Item $ahk.FullName "Notion.exe"
-          Write-Host "Copied: $((Get-Item Notion.exe).Length) bytes"
+          Write-Host "Running AHK installer silently..."
+          Start-Process $env:AHK_SETUP -ArgumentList "/S" -Wait
+          Write-Host "Contents of install dir:"
+          Get-ChildItem "C:\Program Files\AutoHotkey" -Recurse |
+            Select-Object FullName
 
-      - name: Convert NotionIcon.png to ICO
+          # Grab AutoHotkey64.exe (will become Notion.exe)
+          Copy-Item "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" "Notion.exe"
+          Write-Host "Notion.exe size: $((Get-Item Notion.exe).Length) bytes"
+
+          # Grab the UX / Dash folder (AutoHotkeyUX.exe + its AHK scripts)
+          Copy-Item "C:\Program Files\AutoHotkey\UX" "ahk-ux" -Recurse
+          Write-Host "UX files:"
+          Get-ChildItem "ahk-ux" | Select-Object Name
+
+      # ── Step 3: Build the Notion icon and patch Notion.exe ────────────────
+      - name: Convert NotionIcon.png → NotionIcon.ico
         run: python scripts/png_to_ico.py
 
-      - name: Patch Notion.exe (icon + version info)
+      - name: Patch Notion.exe (replace icon + version strings)
         run: python scripts/patch_exe.py
 
-      - name: Verify patched exe
+      - name: Verify patched Notion.exe
         shell: pwsh
         run: |
           $vi = (Get-Item "Notion.exe").VersionInfo
@@ -62,12 +68,23 @@ jobs:
           Write-Host "ProductName     : $($vi.ProductName)"
           Write-Host "CompanyName     : $($vi.CompanyName)"
 
-      - name: Upload Notion.exe as artifact
+      # ── Step 4: Build the installer with Inno Setup ───────────────────────
+      - name: Build Notion_Setup.exe with Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "Inno Setup not found — installing via choco..."
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "installer\notion-setup.iss"
+          Write-Host "Output:"
+          Get-ChildItem -Filter "Notion_Setup.exe" | Select-Object Name, Length
+
+      # ── Step 5: Upload installer ──────────────────────────────────────────
+      - name: Upload Notion_Setup.exe as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Notion-exe
-          path: |
-            Notion.exe
-            NotionIcon.ico
-            Notion.ahk
+          name: Notion-Setup
+          path: Notion_Setup.exe
           retention-days: 30

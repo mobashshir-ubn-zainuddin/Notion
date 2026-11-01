@@ -1,0 +1,60 @@
+name: Build Notion (rebranded AutoHotkey)
+
+on:
+  push:
+    branches: [v1]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Pillow
+        run: pip install Pillow
+
+      - name: Download AutoHotkey v2
+        shell: pwsh
+        run: |
+          Write-Host "Downloading AutoHotkey v2 zip..."
+          Invoke-WebRequest -Uri "https://www.autohotkey.com/download/ahk-v2.zip" -OutFile "ahk-v2.zip" -UseBasicParsing
+          Expand-Archive "ahk-v2.zip" -DestinationPath "ahk-v2"
+          Write-Host "Contents:"
+          Get-ChildItem "ahk-v2" | Select-Object Name
+
+      - name: Copy AutoHotkey64.exe as Notion.exe
+        shell: pwsh
+        run: |
+          Copy-Item "ahk-v2\AutoHotkey64.exe" "Notion.exe"
+          Write-Host "Copied: $(Get-Item Notion.exe | Select-Object -ExpandProperty Length) bytes"
+
+      - name: Convert NotionIcon.png to ICO
+        run: python scripts/png_to_ico.py
+
+      - name: Patch Notion.exe (icon + version info)
+        run: python scripts/patch_exe.py
+
+      - name: Verify patched exe
+        shell: pwsh
+        run: |
+          $vi = (Get-Item "Notion.exe").VersionInfo
+          Write-Host "FileDescription : $($vi.FileDescription)"
+          Write-Host "ProductName     : $($vi.ProductName)"
+          Write-Host "CompanyName     : $($vi.CompanyName)"
+
+      - name: Upload Notion.exe as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Notion-exe
+          path: |
+            Notion.exe
+            NotionIcon.ico
+          retention-days: 30

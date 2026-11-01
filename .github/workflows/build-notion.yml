@@ -69,4 +69,5 @@ jobs:
           path: |
             Notion.exe
             NotionIcon.ico
+            Notion.ahk
           retention-days: 30
